@@ -1,0 +1,127 @@
+---
+title: "Practical Machine Learning Project"
+author: "Cory Breaux"
+date: "3/3/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Executive Summary
+
+## Loading and Processing the Data
+
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+# load libraries
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(rattle)
+library(randomForest)
+library(corrplot)
+```
+
+``` {r echo=TRUE, message=FALSE, warning=FALSE, cache=TRUE}
+# download datasets
+trainData<- read.csv(url("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"),
+                     na.strings = c("NA", "#DIV/0",""))
+testData<- read.csv(url("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"),
+                    na.strings = c("NA", "#DIV/0",""))
+
+# partition training data
+set.seed(123)
+inTrain<-createDataPartition(trainData$classe, p=0.65, list=FALSE)
+myTrain <- trainData[inTrain,]
+myTest <- trainData[-inTrain,]
+dim(myTrain)
+dim(myTest)
+
+# remove near-zero-variance variables
+NZV <- nearZeroVar(myTrain)
+myTrain <- myTrain[,-NZV]
+myTest <- myTest[,-NZV]
+dim(myTrain)
+dim(myTest)
+
+# remove mostly (greater than 90%) NA variables
+mostNA <- sapply(myTrain, function(x) mean(is.na(x))) > 0.9
+myTrain<-myTrain[, mostNA==FALSE]
+myTest<-myTest[, mostNA==FALSE]
+dim(myTrain)
+dim(myTest)
+
+# lastly, remove ID variables
+myTrain<-myTrain[, -c(1:5)]
+myTest<-myTest[,-c(1:5)]
+dim(myTrain)
+dim(myTest)
+```
+Now that the data has been cleaned and processed, we can begin the analysis.
+
+## Correlation Analysis
+```{r echo=TRUE}
+correlationMatrix<-cor(myTrain[,-54])
+corrplot(correlationMatrix, order="FPC", method="color", type="lower", tl.cex=0.8, tl.col=rgb(0,0,0))
+```
+
+Darker colors indicate higher correlation.
+
+## Model Building
+To model the data, we will utilize Random Forests, a Decision Tree and a Generalized Boosted Regression Model. We will use the model with the highest accuracy when applied to the test set.
+
+### Random Forest
+```{r echo=TRUE, cache=TRUE}
+#train the model
+controlRForest<-trainControl(method="cv", number=3, verboseIter=FALSE)
+modelFitRF<-train(classe ~ ., data=myTrain, method="rf", trControl=controlRForest)
+modelFitRF$finalModel
+
+#validate the model
+predictRForest <- predict(modelFitRF, newdata = myTest)
+conMatRF<- confusionMatrix(predictRForest, myTest$classe)
+conMatRF
+
+# plot the results
+plot(conMatRF$table, col=conMatRF$byClass, main = paste("Random Forest: Accuracy =",
+                                                        round(conMatRF$overall['Accuracy'],4)))
+```
+
+## Decision Tree
+``` {r echo=TRUE, cache=TRUE}
+# train the model
+controlTree <- trainControl(method="cv", number=5)
+modelTree <- train(classe ~ ., data = myTrain, method="rpart", trControl=controlTree)
+rpart.plot(modelTree$finalModel)
+
+# validate the model
+predictTree<- predict(modelTree, newdata = myTest)
+conMatDT <- confusionMatrix(myTest$classe, predictTree)
+conMatDT
+```
+
+## Generalized Boosted Regression Model
+``` {r echo=TRUE, cache=TRUE}
+# train the model
+controlGBM<-trainControl(method="repeatedcv", number=5, repeats=1)
+modelGBM<- train(classe ~ ., data=myTrain, method="gbm", trControl=controlGBM, verbose=FALSE)
+modelGBM$finalModel
+
+# validate the model
+predictGBM <- predict(modelGBM, newdata = myTest)
+conMatGBM<- confusionMatrix(predictGBM, myTest$classe)
+conMatGBM
+```
+## Results
+After comparing the accuracy of all three models, we can see that although the Generalized Boosted Regression Model provides strong results, the Random Forest is the best option to use on the validation data.
+
+``` {r echo=TRUE}
+conMatDT$overall[1]
+conMatGBM$overall[1]
+conMatRF$overall[1]
+
+FinalPredicitons<- predict(modelFitRF, newdata = testData)
+FinalPredicitons
+```
